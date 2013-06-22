@@ -132,7 +132,7 @@ sub sprintf($format, *@arguments) {
         my $int := intify(next_argument());
         my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
         $int := nqp::base_I(nqp::box_i($int, $knowhow), 16);
-        infix_x(' ', $size - nqp::chars($int)) ~ $lc ?? nqp::lc($int) !! $int;
+        infix_x(' ', $size - nqp::chars($int)) ~ ($lc ?? nqp::lc($int) !! $int);
     }
 
     my %directives := nqp::hash(
