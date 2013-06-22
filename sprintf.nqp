@@ -29,14 +29,14 @@
 #   %d
 #   right-justification with space padding
 #   that star thingy
+#   %c
+#   %o
 #
 # Here's a rough (incomplete) list of what remains to be done:
 #
-#   %c
 #   %u
 #   %b
 #   %B
-#   %o
 #   %x
 #   %X
 #   make sure bigints work properly
