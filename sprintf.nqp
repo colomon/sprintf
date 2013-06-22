@@ -134,7 +134,7 @@ sub sprintf($format, *@arguments) {
         my $int := intify(next_argument());
         my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
         $int := nqp::base_I(nqp::box_i($int, $knowhow), 16);
-        infix_x(' ', $size - nqp::chars($int)) ~ ($lc ?? nqp::lc($int) !! $int);
+        infix_x($padding_char, $size - nqp::chars($int)) ~ ($lc ?? nqp::lc($int) !! $int);
     }
 
     my %directives := nqp::hash(
@@ -195,7 +195,7 @@ sub is($actual, $expected, $description) {
     }
 }
 
-plan(34);
+plan(41);
 
 is(sprintf('Walter Bishop'), 'Walter Bishop', 'no directives' );
 
@@ -228,7 +228,7 @@ is(sprintf('<%06%>'), '<00000%>', 'right-justified %% with 0-padding');
 is(sprintf('<%*s>', 6, 12), '<    12>', 'right-justified %s with space padding, star-specified');
 is(sprintf('<%0*s>', 6, 'a'), '<00000a>', 'right-justified %s with 0-padding, star-specified');
 is(sprintf('<%*%>', 6), '<     %>', 'right-justified %% with space padding, star-specified');
-is(sprintf('<%0*%>', 5), '<0000%>', 'right-justified %% with 0-padding, start-specified');
+is(sprintf('<%0*%>', 5), '<0000%>', 'right-justified %% with 0-padding, star-specified');
 
 is(sprintf('<%2s>', 'long'), '<long>', '%s string longer than specified size');
 
@@ -247,9 +247,11 @@ is(sprintf('%06c', 97), '00000a', '%c directive with 0-padding');
 
 is(sprintf('%o', 12), '14', 'simple %o');
 is(sprintf('%o', 22.01), '26', 'decimal %o');
+is(sprintf('%06o', 127), '000177', '%o with 0-padding');
 
 is(sprintf('%x', 0), '0', 'simple %x');
 is(sprintf('%x', 12), 'c', 'simple %x');
 is(sprintf('%x', 22.01), '16', 'decimal %x');
 is(sprintf('%X', 12), 'C', 'simple %X');
-is(sprintf('%06o', 127), '000177', '%o with 0-padding');
+is(sprintf('%05x', 12), '0000c', '%x with zero-padding');
+is(sprintf('%0*x', 4, 12), '000c', '%x with zero-padding, star-specified');
