@@ -118,6 +118,13 @@ sub sprintf($format, *@arguments) {
 
     sub chr_directive($size) {
         infix_x(' ', $size - 1) ~ nqp::chr(next_argument());
+}
+
+    sub octal_directive($size) {
+        my $int := intify(next_argument());
+        my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
+        $int := nqp::base_I(nqp::box_i($int, $knowhow), 8);
+        infix_x(' ', $size - nqp::chars($int)) ~ $int;
     }
 
     my %directives := nqp::hash(
@@ -125,6 +132,7 @@ sub sprintf($format, *@arguments) {
         's', &string_directive,
         'd', &decimal_int_directive,
         'c', &chr_directive
+        'o', &octal_directive,
     );
 
     sub inject($match) {
@@ -204,3 +212,6 @@ is(sprintf('<%d>', -18.42), '<-18>', '%d on a negative float');
 is(sprintf('%c', 97), 'a', '%c directive');
 is(sprintf('%10c', 65), '         A', '%c directive with padding');
 is(sprintf('%c%c%c', 187, 246, 171), '»ö«', '%c directive with non-asci codepoints');
+
+is(sprintf('%o', 12), '14', 'simple %o');
+is(sprintf('%o', 22.01), '26', 'decimal %o');
