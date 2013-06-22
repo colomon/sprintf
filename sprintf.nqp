@@ -34,6 +34,7 @@
 #   %o
 #   %x
 #   %X
+#   pad with zeros (0)
 #
 # Here's a rough (incomplete) list of what remains to be done:
 #
@@ -49,7 +50,6 @@
 #   synonyms (%i %D %U %O %F)
 #   format parameter index (1$ etc)
 #   left-justify (-)
-#   pad with zeros (0)
 #   ensure leading "0" or "0b" etc (#)
 #   %v
 #
@@ -60,9 +60,9 @@
 #   size (using hh, h, j, l, q, L, ll, t, or z)
 
 sub sprintf($format, *@arguments) {
-    my $directive := /'%' $<size>=(\d+|'*')? $<letter>=(.)/;
-    my $percent_directive := /'%' $<size>=(\d+|'*')? '%'/;
-    my $star_directive := /'%*' (.)/;
+    my $directive := /'%' $<size>=[[\d+|'*'] ** 0..2] $<letter>=(.)/;
+    my $percent_directive := /'%' $<size>=[[\d+|'*'] ** 0..2] '%'/;
+    my $star_directive := /'%' '0'? '*' (.)/;
 
     my $dircount :=
         +match($format, $directive, :global)           # actual directives
@@ -80,6 +80,7 @@ sub sprintf($format, *@arguments) {
         if $dircount > $argcount;
 
     my $argument_index := 0;
+    my $padding_char;
 
     sub infix_x($s, $n) {
         my @strings;
@@ -94,7 +95,7 @@ sub sprintf($format, *@arguments) {
 
     sub string_directive($size) {
         my $string := next_argument();
-        infix_x(' ', $size - nqp::chars($string)) ~ $string;
+        infix_x($padding_char, $size - nqp::chars($string)) ~ $string;
     }
 
     sub intify($number_representation) {
@@ -110,22 +111,23 @@ sub sprintf($format, *@arguments) {
 
     sub decimal_int_directive($size) {
         my $int := intify(next_argument());
-        infix_x(' ', $size - nqp::chars($int)) ~ $int;
+        my $sign := $int < 0 ?? '-' !! '';
+        $sign ~ infix_x($padding_char, $size - nqp::chars($int)) ~ nqp::abs_i($int);
     }
 
     sub percent_escape($size) {
-        infix_x(' ', $size - 1) ~ '%';
+        infix_x($padding_char, $size - 1) ~ '%';
     }
 
     sub chr_directive($size) {
-        infix_x(' ', $size - 1) ~ nqp::chr(next_argument());
+        infix_x($padding_char, $size - 1) ~ nqp::chr(next_argument());
     }
 
     sub octal_directive($size) {
         my $int := intify(next_argument());
         my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
         $int := nqp::base_I(nqp::box_i($int, $knowhow), 8);
-        infix_x(' ', $size - nqp::chars($int)) ~ $int;
+        infix_x($padding_char, $size - nqp::chars($int)) ~ $int;
     }
 
     sub hex_directive($size, :$lc) {
@@ -151,8 +153,20 @@ sub sprintf($format, *@arguments) {
             ~ ~$match ~ "'")
             unless nqp::existskey(%directives, ~$match<letter>);
 
+        sub extract_size($size) {
+            unless nqp::chars($size) > 0 {
+                return 0;
+            }
+            if nqp::substr($size, 0, 1) eq '0' {
+                $padding_char := '0';
+            } else {
+                $padding_char := ' ';
+            }
+            nqp::substr($size, -1, 1) eq '*' ?? next_argument() !! +$size;
+        }
+
         my $directive := %directives{~$match<letter>};
-        my $size := $match<size> eq '*' ?? next_argument() !! +$match<size>;
+        my $size := extract_size($match<size>);
         $directive($size);
     }
 
@@ -181,7 +195,7 @@ sub is($actual, $expected, $description) {
     }
 }
 
-plan(21);
+plan(34);
 
 is(sprintf('Walter Bishop'), 'Walter Bishop', 'no directives' );
 
@@ -208,9 +222,13 @@ is($die_message, "'a' is not valid in sprintf format sequence '%a'",
 
 is(sprintf('<%6s>', 12), '<    12>', 'right-justified %s with space padding');
 is(sprintf('<%6%>'), '<     %>', 'right-justified %% with space padding');
+is(sprintf('<%06s>', 'hi'), '<0000hi>', 'right-justified %s with 0-padding');
+is(sprintf('<%06%>'), '<00000%>', 'right-justified %% with 0-padding');
 
 is(sprintf('<%*s>', 6, 12), '<    12>', 'right-justified %s with space padding, star-specified');
+is(sprintf('<%0*s>', 6, 'a'), '<00000a>', 'right-justified %s with 0-padding, star-specified');
 is(sprintf('<%*%>', 6), '<     %>', 'right-justified %% with space padding, star-specified');
+is(sprintf('<%0*%>', 5), '<0000%>', 'right-justified %% with 0-padding, start-specified');
 
 is(sprintf('<%2s>', 'long'), '<long>', '%s string longer than specified size');
 
@@ -218,10 +236,14 @@ is(sprintf('<%d>', 1), '<1>', '%d without size or precision');
 is(sprintf('<%d>', "lol, I am a string"), '<0>', '%d on a non-number');
 is(sprintf('<%d>', 42.18), '<42>', '%d on a float');
 is(sprintf('<%d>', -18.42), '<-18>', '%d on a negative float');
+is(sprintf('<%03d>', 1), '<001>', '%d on decimal with 0-padding');
+is(sprintf('<%03d>', -11), '<-11>', '%d on negative decimal with 0-padding (but nothing to pad)');
+is(sprintf('<%04d>', -1), '<-001>', '%d on negative decimal with 0-padding');
 
 is(sprintf('%c', 97), 'a', '%c directive');
-is(sprintf('%10c', 65), '         A', '%c directive with padding');
+is(sprintf('%10c', 65), '         A', '%c directive with space padding');
 is(sprintf('%c%c%c', 187, 246, 171), '»ö«', '%c directive with non-asci codepoints');
+is(sprintf('%06c', 97), '00000a', '%c directive with 0-padding');
 
 is(sprintf('%o', 12), '14', 'simple %o');
 is(sprintf('%o', 22.01), '26', 'decimal %o');
@@ -230,3 +252,4 @@ is(sprintf('%x', 0), '0', 'simple %x');
 is(sprintf('%x', 12), 'c', 'simple %x');
 is(sprintf('%x', 22.01), '16', 'decimal %x');
 is(sprintf('%X', 12), 'C', 'simple %X');
+is(sprintf('%06o', 127), '000177', '%o with 0-padding');
