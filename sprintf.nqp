@@ -131,8 +131,8 @@ sub sprintf($format, *@arguments) {
         '%', &percent_escape,
         's', &string_directive,
         'd', &decimal_int_directive,
-        'c', &chr_directive
-        'o', &octal_directive,
+        'c', &chr_directive,
+        'o', &octal_directive
     );
 
     sub inject($match) {
