@@ -128,7 +128,7 @@ sub sprintf($format, *@arguments) {
         infix_x(' ', $size - nqp::chars($int)) ~ $int;
     }
 
-    sub hex_directive($size, :$lc = False) {
+    sub hex_directive($size, :$lc) {
         my $int := intify(next_argument());
         my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
         $int := nqp::base_I(nqp::box_i($int, $knowhow), 16);
