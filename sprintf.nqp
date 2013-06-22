@@ -2,6 +2,7 @@
 
 # Here is how to read up on sprintf:
 #
+#   http://pubs.opengroup.org/onlinepubs/009695399/functions/sprintf.html
 #   $ perldoc -f sprintf
 #   $ man 3 sprintf
 #
