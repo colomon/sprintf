@@ -31,14 +31,14 @@
 #   that star thingy
 #   %c
 #   %o
+#   %x
+#   %X
 #
 # Here's a rough (incomplete) list of what remains to be done:
 #
 #   %u
 #   %b
 #   %B
-#   %x
-#   %X
 #   make sure bigints work properly
 #   %e
 #   %f
@@ -127,12 +127,21 @@ sub sprintf($format, *@arguments) {
         infix_x(' ', $size - nqp::chars($int)) ~ $int;
     }
 
+    sub hex_directive($size, :$lc = False) {
+        my $int := intify(next_argument());
+        my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
+        $int := nqp::base_I(nqp::box_i($int, $knowhow), 16);
+        infix_x(' ', $size - nqp::chars($int)) ~ $lc ?? nqp::lc($int) !! $int;
+    }
+
     my %directives := nqp::hash(
         '%', &percent_escape,
         's', &string_directive,
         'd', &decimal_int_directive,
         'c', &chr_directive,
-        'o', &octal_directive
+        'o', &octal_directive,
+        'x', sub($s) { hex_directive($s, :lc); },
+        'X', &hex_directive,
     );
 
     sub inject($match) {
@@ -215,3 +224,8 @@ is(sprintf('%c%c%c', 187, 246, 171), '»ö«', '%c directive with non-asci codep
 
 is(sprintf('%o', 12), '14', 'simple %o');
 is(sprintf('%o', 22.01), '26', 'decimal %o');
+
+is(sprintf('%x', 0), '0', 'simple %x');
+is(sprintf('%x', 12), 'c', 'simple %x');
+is(sprintf('%x', 22.01), '16', 'decimal %x');
+is(sprintf('%X', 12), 'C', 'simple %X');
