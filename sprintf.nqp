@@ -80,7 +80,6 @@ sub sprintf($format, *@arguments) {
         if $dircount > $argcount;
 
     my $argument_index := 0;
-    my $padding_char;
 
     sub infix_x($s, $n) {
         my @strings;
@@ -93,9 +92,9 @@ sub sprintf($format, *@arguments) {
         @arguments[$argument_index++];
     }
 
-    sub string_directive($size) {
+    sub string_directive($size, $padding) {
         my $string := next_argument();
-        infix_x($padding_char, $size - nqp::chars($string)) ~ $string;
+        infix_x($padding, $size - nqp::chars($string)) ~ $string;
     }
 
     sub intify($number_representation) {
@@ -109,32 +108,32 @@ sub sprintf($format, *@arguments) {
         $result;
     }
 
-    sub decimal_int_directive($size) {
+    sub decimal_int_directive($size, $padding) {
         my $int := intify(next_argument());
         my $sign := $int < 0 ?? '-' !! '';
-        $sign ~ infix_x($padding_char, $size - nqp::chars($int)) ~ nqp::abs_i($int);
+        $sign ~ infix_x($padding, $size - nqp::chars($int)) ~ nqp::abs_i($int);
     }
 
-    sub percent_escape($size) {
-        infix_x($padding_char, $size - 1) ~ '%';
+    sub percent_escape($size, $padding) {
+        infix_x($padding, $size - 1) ~ '%';
     }
 
-    sub chr_directive($size) {
-        infix_x($padding_char, $size - 1) ~ nqp::chr(next_argument());
+    sub chr_directive($size, $padding) {
+        infix_x($padding, $size - 1) ~ nqp::chr(next_argument());
     }
 
-    sub octal_directive($size) {
+    sub octal_directive($size, $padding) {
         my $int := intify(next_argument());
         my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
         $int := nqp::base_I(nqp::box_i($int, $knowhow), 8);
-        infix_x($padding_char, $size - nqp::chars($int)) ~ $int;
+        infix_x($padding, $size - nqp::chars($int)) ~ $int;
     }
 
-    sub hex_directive($size, :$lc) {
+    sub hex_directive($size, $padding, :$lc) {
         my $int := intify(next_argument());
         my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
         $int := nqp::base_I(nqp::box_i($int, $knowhow), 16);
-        infix_x($padding_char, $size - nqp::chars($int)) ~ ($lc ?? nqp::lc($int) !! $int);
+        infix_x($padding, $size - nqp::chars($int)) ~ ($lc ?? nqp::lc($int) !! $int);
     }
 
     my %directives := nqp::hash(
@@ -143,7 +142,7 @@ sub sprintf($format, *@arguments) {
         'd', &decimal_int_directive,
         'c', &chr_directive,
         'o', &octal_directive,
-        'x', sub($s) { hex_directive($s, :lc); },
+        'x', sub($s, $p) { hex_directive($s, $p, :lc) },
         'X', &hex_directive,
     );
 
@@ -157,17 +156,13 @@ sub sprintf($format, *@arguments) {
             unless nqp::chars($size) > 0 {
                 return 0;
             }
-            if nqp::substr($size, 0, 1) eq '0' {
-                $padding_char := '0';
-            } else {
-                $padding_char := ' ';
-            }
             nqp::substr($size, -1, 1) eq '*' ?? next_argument() !! +$size;
         }
 
         my $directive := %directives{~$match<letter>};
         my $size := extract_size($match<size>);
-        $directive($size);
+        my $padding := nqp::substr($match<size>, 0, 1) eq '0' ?? '0' !! ' ';
+        $directive($size, $padding);
     }
 
     subst($format, $directive, &inject, :global);
