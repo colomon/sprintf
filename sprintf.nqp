@@ -118,7 +118,7 @@ sub sprintf($format, *@arguments) {
 
     sub chr_directive($size) {
         infix_x(' ', $size - 1) ~ nqp::chr(next_argument());
-}
+    }
 
     sub octal_directive($size) {
         my $int := intify(next_argument());
