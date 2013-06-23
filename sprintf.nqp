@@ -35,10 +35,10 @@
 #   %x
 #   %X
 #   pad with zeros (0)
+#   %u
 #
 # Here's a rough (incomplete) list of what remains to be done:
 #
-#   %u
 #   %b
 #   %B
 #   make sure bigints work properly
@@ -136,6 +136,28 @@ sub sprintf($format, *@arguments) {
         infix_x($padding, $size - nqp::chars($int)) ~ ($lc ?? nqp::lc($int) !! $int);
     }
 
+    # XXX: Should we emulate an upper limit, like 2**64?
+    # XXX: Should we emulate p5 behaviour for negative values passed to %u ?
+    sub uint_directive($size) {
+        my $int := intify(next_argument());
+        my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
+        if $int < 0 {
+                my $err := nqp::getstderr();
+                nqp::printfh($err, "negative value '" 
+                                ~ $int
+                                ~ "' for %u in sprintf");
+                $int := 0;
+        }
+
+        my $chars := nqp::chars($int);
+
+        # Go throught tostr_I to avoid scientific notation.
+        $int := nqp::box_i($int, $knowhow);
+        my $str := nqp::tostr_I($int);
+
+        infix_x(' ', $size - $chars) ~ $str;
+    }
+
     my %directives := nqp::hash(
         '%', &percent_escape,
         's', &string_directive,
@@ -144,6 +166,7 @@ sub sprintf($format, *@arguments) {
         'o', &octal_directive,
         'x', sub($s, $p) { hex_directive($s, $p, :lc) },
         'X', &hex_directive,
+        'u', &uint_directive,
     );
 
     sub inject($match) {
@@ -250,3 +273,6 @@ is(sprintf('%x', 22.01), '16', 'decimal %x');
 is(sprintf('%X', 12), 'C', 'simple %X');
 is(sprintf('%05x', 12), '0000c', '%x with zero-padding');
 is(sprintf('%0*x', 4, 12), '000c', '%x with zero-padding, star-specified');
+is(sprintf('%u', 12), '12', 'simple %u');
+is(sprintf('%u', 22.01), '22', 'decimal %u');
+is(sprintf("%u", 2**32), "4294967296", "max uint32 to %u");
