@@ -138,7 +138,7 @@ sub sprintf($format, *@arguments) {
 
     # XXX: Should we emulate an upper limit, like 2**64?
     # XXX: Should we emulate p5 behaviour for negative values passed to %u ?
-    sub uint_directive($size) {
+    sub uint_directive($size, $padding) {
         my $int := intify(next_argument());
         my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
         if $int < 0 {
@@ -155,7 +155,7 @@ sub sprintf($format, *@arguments) {
         $int := nqp::box_i($int, $knowhow);
         my $str := nqp::tostr_I($int);
 
-        infix_x(' ', $size - $chars) ~ $str;
+        infix_x($padding, $size - $chars) ~ $str;
     }
 
     my %directives := nqp::hash(
