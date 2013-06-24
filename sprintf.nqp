@@ -59,27 +59,65 @@
 #   l-value trickery (%n)
 #   size (using hh, h, j, l, q, L, ll, t, or z)
 
-sub sprintf($format, *@arguments) {
-    my $directive := /'%' $<size>=[[\d+|'*'] ** 0..2] $<letter>=(.)/;
-    my $percent_directive := /'%' $<size>=[[\d+|'*'] ** 0..2] '%'/;
-    my $star_directive := /'%' '0'? '*' (.)/;
+grammar sprintf::Grammar {
+    token TOP {
+        :my $*ARGS_USED := 0;
+        ^ <statement>* $
+    }
+    
+    method panic($msg) { nqp::die($msg) }
+    
+    token statement {
+        [
+        | <?[%]> [ [ <directive> | <escape> ]
+            || <.panic("'" ~ nqp::substr(self.orig,1) ~ "' is not valid in sprintf format sequence '" ~ self.orig ~ "'")> ]
+        | <![%]> <literal>
+        ]
+    }
 
-    my $dircount :=
-        +match($format, $directive, :global)           # actual directives
-        - +match($format, $percent_directive, :global) # %% don't require arguments
-        + +match($format, $star_directive, :global)    # the star wants one more arg
-    ;
-    my $argcount := +@arguments;
+    proto token directive { <...> }
+    token directive:sym<b> { '%' <flags>* <size>? <sym> }
+    token directive:sym<c> { '%' <flags>* <size>? <sym> }
+    token directive:sym<d> { '%' <flags>* <size>? <sym> }
+    token directive:sym<o> { '%' <flags>* <size>? <sym> }
+    token directive:sym<s> { '%' <flags>* <size>? <sym> }
+    token directive:sym<u> { '%' <flags>* <size>? <sym> }
+    token directive:sym<x> { '%' <flags>* <size>? $<sym>=<[xX]> }
 
-    nqp::die("Too few directives: found $dircount, fewer than the $argcount arguments after the format string")
-        if $dircount < $argcount;
+    proto token escape { <...> }
+    token escape:sym<%> { '%' <flags>* <size>? <sym> }
+    
+    token literal { <-[%]>+ }
+    
+    token flags {
+        | $<space> = ' '
+        | $<plus>  = '+'
+        | $<minus> = '-'
+        | $<zero>  = '0'
+        | $<hash>  = '#'
+    }
+    
+    token size {
+        [ \d+ | $<star>=['*'] ]
+    }
+}
 
-    nqp::die("Too many directives: found $dircount, but "
-             ~ ($argcount > 0 ?? "only $argcount" !! "no")
-             ~ " arguments after the format string")
-        if $dircount > $argcount;
+class sprintf::Actions {
+    method TOP($/) {
+        my @statements;
+        @statements.push( $_.ast ) for $<statement>;
 
-    my $argument_index := 0;
+        if $*ARGS_USED < +@*ARGS_HAVE {
+            nqp::die("Too few directives: found $*ARGS_USED,"
+            ~ " fewer than the " ~ +@*ARGS_HAVE ~ " arguments after the format string")
+        }
+        if $*ARGS_USED > +@*ARGS_HAVE {
+            nqp::die("Too many directives: found $*ARGS_USED, but "
+            ~ (+@*ARGS_HAVE > 0 ?? "only " ~ +@*ARGS_HAVE !! "no")
+            ~ " arguments after the format string")
+        }
+        make nqp::join('', @statements);
+    }
 
     sub infix_x($s, $n) {
         my @strings;
@@ -89,12 +127,7 @@ sub sprintf($format, *@arguments) {
     }
 
     sub next_argument() {
-        @arguments[$argument_index++];
-    }
-
-    sub string_directive($size, $padding) {
-        my $string := next_argument();
-        infix_x($padding, $size - nqp::chars($string)) ~ $string;
+        @*ARGS_HAVE[$*ARGS_USED++]
     }
 
     sub intify($number_representation) {
@@ -108,37 +141,50 @@ sub sprintf($format, *@arguments) {
         $result;
     }
 
-    sub decimal_int_directive($size, $padding) {
+    sub padding_char($st) {
+        my $padding_char := ' ';
+        $padding_char := '0' if $_<zero> for $st<flags>;
+        make $padding_char
+    }
+
+    method statement($/){
+        my $st;
+        if $<directive> { $st := $<directive> }
+        elsif $<escape> { $st := $<escape> }
+        else { $st := $<literal> }
+        my @pieces;
+        @pieces.push: infix_x(padding_char($st), $st<size>.ast - nqp::chars($st.ast)) if $st<size>;
+        @pieces.push: $st.ast;
+        make nqp::join('', @pieces)
+    }
+
+    method directive:sym<b>($/) {
+        
+    }
+    method directive:sym<c>($/) {
+        make nqp::chr(next_argument())
+    }
+    method directive:sym<d>($/) {
         my $int := intify(next_argument());
-        my $sign := $int < 0 ?? '-' !! '';
-        $sign ~ infix_x($padding, $size - nqp::chars($int)) ~ nqp::abs_i($int);
+        if $<size> {
+            my $sign := $int < 0 ?? '-' !! '';
+            $int := nqp::abs_i($int);
+            $int := $sign ~ infix_x(padding_char($/), $<size>.ast - nqp::chars($int) - 1) ~ $int
+        }
+        make $int
     }
-
-    sub percent_escape($size, $padding) {
-        infix_x($padding, $size - 1) ~ '%';
-    }
-
-    sub chr_directive($size, $padding) {
-        infix_x($padding, $size - 1) ~ nqp::chr(next_argument());
-    }
-
-    sub octal_directive($size, $padding) {
+    method directive:sym<o>($/) {
         my $int := intify(next_argument());
         my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
-        $int := nqp::base_I(nqp::box_i($int, $knowhow), 8);
-        infix_x($padding, $size - nqp::chars($int)) ~ $int;
+        make nqp::base_I(nqp::box_i($int, $knowhow), 8)
     }
 
-    sub hex_directive($size, $padding, :$lc) {
-        my $int := intify(next_argument());
-        my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
-        $int := nqp::base_I(nqp::box_i($int, $knowhow), 16);
-        infix_x($padding, $size - nqp::chars($int)) ~ ($lc ?? nqp::lc($int) !! $int);
+    method directive:sym<s>($/) {
+        make next_argument()
     }
-
     # XXX: Should we emulate an upper limit, like 2**64?
     # XXX: Should we emulate p5 behaviour for negative values passed to %u ?
-    sub uint_directive($size, $padding) {
+    method directive:sym<u>($/) {
         my $int := intify(next_argument());
         my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
         if $int < 0 {
@@ -153,42 +199,33 @@ sub sprintf($format, *@arguments) {
 
         # Go throught tostr_I to avoid scientific notation.
         $int := nqp::box_i($int, $knowhow);
-        my $str := nqp::tostr_I($int);
-
-        infix_x($padding, $size - $chars) ~ $str;
+        make nqp::tostr_I($int)
+    }
+    method directive:sym<x>($/) {
+        my $int := intify(next_argument());
+        my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
+        $int := nqp::base_I(nqp::box_i($int, $knowhow), 16);
+        make $<sym> eq 'x' ?? nqp::lc($int) !! $int
     }
 
-    my %directives := nqp::hash(
-        '%', &percent_escape,
-        's', &string_directive,
-        'd', &decimal_int_directive,
-        'c', &chr_directive,
-        'o', &octal_directive,
-        'x', sub($s, $p) { hex_directive($s, $p, :lc) },
-        'X', &hex_directive,
-        'u', &uint_directive,
-    );
-
-    sub inject($match) {
-        nqp::die("'" ~ ~$match<letter>
-            ~ "' is not valid in sprintf format sequence '"
-            ~ ~$match ~ "'")
-            unless nqp::existskey(%directives, ~$match<letter>);
-
-        sub extract_size($size) {
-            unless nqp::chars($size) > 0 {
-                return 0;
-            }
-            nqp::substr($size, -1, 1) eq '*' ?? next_argument() !! +$size;
-        }
-
-        my $directive := %directives{~$match<letter>};
-        my $size := extract_size($match<size>);
-        my $padding := nqp::substr($match<size>, 0, 1) eq '0' ?? '0' !! ' ';
-        $directive($size, $padding);
+    method escape:sym<%>($/) {
+        make '%'
     }
 
-    subst($format, $directive, &inject, :global);
+    method literal($/) {
+        make ~$/
+    }
+
+    method size($/) {
+        make $<star> ?? next_argument() !! ~$/
+    }
+}
+
+my $actions := sprintf::Actions.new();
+
+sub sprintf($format, *@arguments) {
+    my @*ARGS_HAVE := @arguments;
+    return sprintf::Grammar.parse( $format, :actions($actions) ).ast;
 }
 
 my $die_message := 'unset';
