@@ -29,18 +29,21 @@
 #   %s
 #   %d
 #   right-justification with space padding
+#   left-justify (-)
 #   that star thingy
 #   %c
 #   %o
 #   %x
 #   %X
+#   %b
+#   %B
+#   leading "0b"/"0B" for binaries
+#   precision for binaries (.)
 #   pad with zeros (0)
 #   %u
 #
 # Here's a rough (incomplete) list of what remains to be done:
 #
-#   %b
-#   %B
 #   make sure bigints work properly
 #   %e
 #   %f
@@ -49,7 +52,6 @@
 #   precision or maximum width (.)
 #   synonyms (%i %D %U %O %F)
 #   format parameter index (1$ etc)
-#   left-justify (-)
 #   ensure leading "0" or "0b" etc (#)
 #   %v
 #
@@ -76,13 +78,13 @@ grammar sprintf::Grammar {
     }
 
     proto token directive { <...> }
-    token directive:sym<b> { '%' <flags>* <size>? <sym> }
+    token directive:sym<b> { '%' <flags>* <size>? [ '.' <precision=.size> ]? $<sym>=<[bB]> }
     token directive:sym<c> { '%' <flags>* <size>? <sym> }
     token directive:sym<d> { '%' <flags>* <size>? <sym> }
-    token directive:sym<o> { '%' <flags>* <size>? <sym> }
+    token directive:sym<o> { '%' <flags>* <size>? [ '.' <precision=.size> ]? <sym> }
     token directive:sym<s> { '%' <flags>* <size>? <sym> }
     token directive:sym<u> { '%' <flags>* <size>? <sym> }
-    token directive:sym<x> { '%' <flags>* <size>? $<sym>=<[xX]> }
+    token directive:sym<x> { '%' <flags>* <size>? [ '.' <precision=.size> ]? $<sym>=<[xX]> }
 
     proto token escape { <...> }
     token escape:sym<%> { '%' <flags>* <size>? <sym> }
@@ -98,7 +100,7 @@ grammar sprintf::Grammar {
     }
     
     token size {
-        [ \d+ | $<star>=['*'] ]
+        \d* | $<star>='*'
     }
 }
 
@@ -143,8 +145,18 @@ class sprintf::Actions {
 
     sub padding_char($st) {
         my $padding_char := ' ';
-        $padding_char := '0' if $_<zero> for $st<flags>;
+        unless $st<precision> || has_flag($st, 'minus') {
+            $padding_char := '0' if $_<zero> for $st<flags>;
+        }
         make $padding_char
+    }
+
+    sub has_flag($st, $key) {
+        my $ok := 0;
+        if $st<flags> {
+            $ok := 1 if $_{$key} for $st<flags>
+        }
+        $ok
     }
 
     method statement($/){
@@ -154,12 +166,25 @@ class sprintf::Actions {
         else { $st := $<literal> }
         my @pieces;
         @pieces.push: infix_x(padding_char($st), $st<size>.ast - nqp::chars($st.ast)) if $st<size>;
-        @pieces.push: $st.ast;
+        has_flag($st, 'minus')
+            ?? @pieces.unshift: $st.ast
+            !! @pieces.push:    $st.ast;
         make nqp::join('', @pieces)
     }
 
     method directive:sym<b>($/) {
-        
+        my $int := intify(next_argument());
+        my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
+        $int := nqp::base_I(nqp::box_i($int, $knowhow), 2);
+        my $pre := ($<sym> eq 'b' ?? '0b' !! '0B') if $int && has_flag($/, 'hash');
+        if nqp::chars($<precision>) {
+            $int := '' if $<precision>.ast == 0 && $int == 0;
+            $int := $pre ~ infix_x('0', intify($<precision>.ast) - nqp::chars($int)) ~ $int;
+        }
+        else {
+            $int := $pre ~ $int
+        }
+        make $int;
     }
     method directive:sym<c>($/) {
         make nqp::chr(next_argument())
@@ -250,7 +275,7 @@ sub is($actual, $expected, $description) {
     }
 }
 
-plan(41);
+plan(82);
 
 is(sprintf('Walter Bishop'), 'Walter Bishop', 'no directives' );
 
@@ -313,3 +338,42 @@ is(sprintf('%0*x', 4, 12), '000c', '%x with zero-padding, star-specified');
 is(sprintf('%u', 12), '12', 'simple %u');
 is(sprintf('%u', 22.01), '22', 'decimal %u');
 is(sprintf("%u", 2**32), "4294967296", "max uint32 to %u");
+
+is(sprintf('%B', 2**32-1), '11111111111111111111111111111111', 'simple %B');
+is(sprintf('%+B', 2**32-1), '11111111111111111111111111111111', 'simple %B with plus sign');
+is(sprintf('%#B', 2**32-1), '0B11111111111111111111111111111111', '%B with 0B prefixed');
+is(sprintf('%b', 2**32-1), '11111111111111111111111111111111', 'simple %b');
+is(sprintf('%+b', 2**32-1), '11111111111111111111111111111111', 'simple %b with plus sign');
+is(sprintf('%#b', 2**32-1), '0b11111111111111111111111111111111', '%b with 0b prefixed');
+is(sprintf('%34b', 2**32-1), '  11111111111111111111111111111111', '%b right justified using space chars');
+is(sprintf('%034b', 2**32-1), '0011111111111111111111111111111111', '%b right justified, 0-padding');
+is(sprintf('%-34b', 2**32-1), '11111111111111111111111111111111  ', '%b left justified using space chars');
+is(sprintf('%-034b', 2**32-1), '11111111111111111111111111111111  ', '%b left justified, 0-padding');
+is(sprintf('%6b', 12), '  1100', 'simple %b, padded');
+is(sprintf('%6.5b', 12), ' 01100', '%b, right justified and precision');
+is(sprintf('%-6.5b', 12), '01100 ', '%b, left justified and precision');
+is(sprintf('%+6.5b', 12), ' 01100', '%b, right justified and precision, plus sign');
+is(sprintf('% 6.5b', 12), ' 01100', '%b, right justified and precision, space char');
+is(sprintf('%06.5b', 12), ' 01100', '%b, 0 flag with precision: no effect');
+is(sprintf('%.5b', 12), '01100', '%b with precision but no width');
+is(sprintf('%.0b', 0), '', '%b, precision zero, no value');
+is(sprintf('%+.0b', 0), '', '%b, precision zero, plus sign, no value');
+is(sprintf('% .0b', 0), '', '%b, precision zero, space char, no value');
+is(sprintf('%-.0b', 0), '', '%b, precision zero, minus, no value');
+is(sprintf('%#.0b', 0), '', '%b, precision zero, hash, no value');
+is(sprintf('%#3.0b', 0), '   ', '%b, width but zero precision');
+is(sprintf('%#3.1b', 0), '  0', '%b, width and precision but zero value');
+is(sprintf('%#3.2b', 0), ' 00', '%b, width and precision but zero value');
+is(sprintf('%#3.3b', 0), '000', '%b, width and precision but zero value');
+is(sprintf('%#3.4b', 0), '0000', '%b, width and precision but zero value, overlong');
+is(sprintf('%.0b', 1), '1', '%b, precision zero and value');
+is(sprintf('%+.0b', 1), '1', '%b, precision zero, plus sign and value');
+is(sprintf('% .0b', 1), '1', '%b, precision zero, space char and value');
+is(sprintf('%-.0b', 1), '1', '%b, precision zero, hash and value');
+is(sprintf('%#.0b', 1), '0b1', '%b, width, zero precision, no value');
+is(sprintf('%#3.0b', 1), '0b1', '%b, width, zero precision but value');
+is(sprintf('%#3.1b', 1), '0b1', '%b, width and precision and value');
+is(sprintf('%#3.2b', 1), '0b01', '%b, width and precision and value');
+is(sprintf('%#3.3b', 1), '0b001', '%b, width and precision and value');
+is(sprintf('%#3.4b', 1), '0b0001', '%b, width and precision and value');
+is(sprintf('%#b', 0), '0', 'simple %b with zero value');
