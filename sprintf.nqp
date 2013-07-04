@@ -169,7 +169,7 @@ class sprintf::Actions {
         has_flag($st, 'minus')
             ?? @pieces.unshift: $st.ast
             !! @pieces.push:    $st.ast;
-        make nqp::join('', @pieces)
+        make join('', @pieces)
     }
 
     method directive:sym<b>($/) {
