@@ -275,7 +275,15 @@ sub is($actual, $expected, $description) {
     }
 }
 
-plan(85);
+plan(87);
+
+my $knowhow := nqp::knowhow();
+my $bi_type := $knowhow.new_type(:name('TestBigInt'), :repr('P6bigint'));
+$bi_type.HOW.compose($bi_type);
+sub bi-box($x) { nqp::box_i($x, $bi_type) }
+my $two := bi-box(2);
+my $two-to-the-sixty-eight := nqp::pow_I($two, bi-box(68), $bi_type, $bi_type); 
+my $two-to-the-sixty-eight-plus-two := nqp::add_I($two-to-the-sixty-eight, $two, $two); 
 
 is(sprintf('Walter Bishop'), 'Walter Bishop', 'no directives' );
 
@@ -320,7 +328,8 @@ is(sprintf('<%03d>', 1), '<001>', '%d on decimal with 0-padding');
 is(sprintf('<%03d>', -11), '<-11>', '%d on negative decimal with 0-padding (but nothing to pad)');
 is(sprintf('<%04d>', -1), '<-001>', '%d on negative decimal with 0-padding');
 is(sprintf("%d", 2**32), "4294967296", "max uint32 to %d");
-is(sprintf("%d", 2**68 + 2**54 + 2**3), "295165919577862307848", "big int to %d");
+is(sprintf("%d", $two-to-the-sixty-eight), "295147905179352825856", "2 ** 68 to %d");
+is(sprintf("%d", $two-to-the-sixty-eight-plus-two), "295147905179352825858", "2 ** 68 + 2 to %d");
 
 is(sprintf('%c', 97), 'a', '%c directive');
 is(sprintf('%10c', 65), '         A', '%c directive with space padding');
@@ -340,7 +349,8 @@ is(sprintf('%0*x', 4, 12), '000c', '%x with zero-padding, star-specified');
 is(sprintf('%u', 12), '12', 'simple %u');
 is(sprintf('%u', 22.01), '22', 'decimal %u');
 is(sprintf("%u", 2**32), "4294967296", "max uint32 to %u");
-is(sprintf("%u", 2**32+1), "4294967297", "max uint32 + 1 to %u");
+is(sprintf("%u", two-to-the-sixty-eight), "295147905179352825856", "2 ** 68 to %u");
+is(sprintf("%u", two-to-the-sixty-eight-plus-two), "295147905179352825858", "2 ** 68 + 2 to %u");
 
 is(sprintf('%B', 2**32-1), '11111111111111111111111111111111', 'simple %B');
 is(sprintf('%+B', 2**32-1), '11111111111111111111111111111111', 'simple %B with plus sign');
