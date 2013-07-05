@@ -134,11 +134,16 @@ class sprintf::Actions {
 
     sub intify($number_representation) {
         my $result;
-        if $number_representation > 0 {
-            $result := nqp::floor_n($number_representation);
-        }
-        else {
-            $result := nqp::ceil_n($number_representation);
+        my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
+        if nqp::isint($number_representation) {
+            $result := nqp::box_i($number_representation, $knowhow);
+        } else {
+            if $number_representation > 0 {
+                $result := nqp::box_i(nqp::floor_n($number_representation), $knowhow);
+            }
+            else {
+                $result := nqp::box_i(nqp::ceil_n($number_representation), $knowhow);
+            }
         }
         $result;
     }
@@ -174,8 +179,7 @@ class sprintf::Actions {
 
     method directive:sym<b>($/) {
         my $int := intify(next_argument());
-        my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
-        $int := nqp::base_I(nqp::box_i($int, $knowhow), 2);
+        $int := nqp::base_I($int, 2);
         my $pre := ($<sym> eq 'b' ?? '0b' !! '0B') if $int && has_flag($/, 'hash');
         if nqp::chars($<precision>) {
             $int := '' if $<precision>.ast == 0 && $int == 0;
@@ -193,15 +197,15 @@ class sprintf::Actions {
         my $int := intify(next_argument());
         if $<size> {
             my $sign := $int < 0 ?? '-' !! '';
-            $int := nqp::abs_i($int);
-            $int := $sign ~ infix_x(padding_char($/), $<size>.ast - nqp::chars($int) - 1) ~ $int
+            $int := nqp::abs_I($int, $int);
+            my $int-str := nqp::tostr_I($int);
+            $int := $sign ~ infix_x(padding_char($/), $<size>.ast - nqp::chars($int-str) - 1) ~ $int-str
         }
         make $int
     }
     method directive:sym<o>($/) {
         my $int := intify(next_argument());
-        my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
-        make nqp::base_I(nqp::box_i($int, $knowhow), 8)
+        make nqp::base_I($int, 8)
     }
 
     method directive:sym<s>($/) {
@@ -211,7 +215,6 @@ class sprintf::Actions {
     # XXX: Should we emulate p5 behaviour for negative values passed to %u ?
     method directive:sym<u>($/) {
         my $int := intify(next_argument());
-        my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
         if $int < 0 {
                 my $err := nqp::getstderr();
                 nqp::printfh($err, "negative value '" 
@@ -223,13 +226,11 @@ class sprintf::Actions {
         my $chars := nqp::chars($int);
 
         # Go throught tostr_I to avoid scientific notation.
-        $int := nqp::box_i($int, $knowhow);
         make nqp::tostr_I($int)
     }
     method directive:sym<x>($/) {
         my $int := intify(next_argument());
-        my $knowhow := nqp::knowhow().new_type(:repr("P6bigint"));
-        $int := nqp::base_I(nqp::box_i($int, $knowhow), 16);
+        $int := nqp::base_I($int, 16);
         make $<sym> eq 'x' ?? nqp::lc($int) !! $int
     }
 
@@ -283,7 +284,7 @@ $bi_type.HOW.compose($bi_type);
 sub bi-box($x) { nqp::box_i($x, $bi_type) }
 my $two := bi-box(2);
 my $two-to-the-sixty-eight := nqp::pow_I($two, bi-box(68), $bi_type, $bi_type); 
-my $two-to-the-sixty-eight-plus-two := nqp::add_I($two-to-the-sixty-eight, $two, $two); 
+my $two-to-the-sixty-eight-plus-two := nqp::add_I($two-to-the-sixty-eight, $two, $two);
 
 is(sprintf('Walter Bishop'), 'Walter Bishop', 'no directives' );
 
@@ -349,8 +350,8 @@ is(sprintf('%0*x', 4, 12), '000c', '%x with zero-padding, star-specified');
 is(sprintf('%u', 12), '12', 'simple %u');
 is(sprintf('%u', 22.01), '22', 'decimal %u');
 is(sprintf("%u", 2**32), "4294967296", "max uint32 to %u");
-is(sprintf("%u", two-to-the-sixty-eight), "295147905179352825856", "2 ** 68 to %u");
-is(sprintf("%u", two-to-the-sixty-eight-plus-two), "295147905179352825858", "2 ** 68 + 2 to %u");
+is(sprintf("%u", $two-to-the-sixty-eight), "295147905179352825856", "2 ** 68 to %u");
+is(sprintf("%u", $two-to-the-sixty-eight-plus-two), "295147905179352825858", "2 ** 68 + 2 to %u");
 
 is(sprintf('%B', 2**32-1), '11111111111111111111111111111111', 'simple %B');
 is(sprintf('%+B', 2**32-1), '11111111111111111111111111111111', 'simple %B with plus sign');
